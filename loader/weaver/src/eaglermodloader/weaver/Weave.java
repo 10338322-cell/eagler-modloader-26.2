@@ -137,6 +137,7 @@ public final class Weave {
 		//    LocalRef implementations): normally defined on the fly, here written out like the rest
 		int generated = writeGeneratedClasses(classesOut, mixin, launcher);
 		System.out.println("[weave] generated classes: " + generated);
+		verifyMixedClasses(classesOut);
 
 		System.out.println("[weave] game classes: " + game);
 		System.out.println("[weave] mod classes: " + modCls + " from " + (mods.size()) + " mods (incl. builtin)");
@@ -290,6 +291,33 @@ public final class Weave {
 			}
 		}
 		return n;
+	}
+
+	/**
+	 * Checks the bytecode of every method in classes that mixins changed, the way the JVM verifier would
+	 * (locals used before they're set, stack mismatches). The browser compiler fails on such methods
+	 * without saying which one, so this names them.
+	 */
+	private static void verifyMixedClasses(Path classesOut) throws IOException {
+		int checked = 0, bad = 0;
+		try (Stream<Path> s = Files.walk(classesOut)) {
+			for (Path p : (Iterable<Path>) s.filter(x -> x.toString().endsWith(".class"))::iterator) {
+				byte[] b = Files.readAllBytes(p);
+				if (!new String(b, StandardCharsets.ISO_8859_1).contains("MixinMerged")) continue;
+				org.objectweb.asm.tree.ClassNode cn = new org.objectweb.asm.tree.ClassNode();
+				new org.objectweb.asm.ClassReader(b).accept(cn, 0);
+				checked++;
+				for (org.objectweb.asm.tree.MethodNode m : cn.methods) {
+					if (m.instructions.size() == 0) continue;
+					try {
+						new org.objectweb.asm.tree.analysis.Analyzer<>(new org.objectweb.asm.tree.analysis.BasicVerifier()).analyze(cn.name, m);
+					} catch (Throwable t) {
+						if (bad++ < 40) System.out.println("[weave] verify: " + cn.name.replace('/', '.') + "." + m.name + m.desc + ": " + t.getMessage());
+					}
+				}
+			}
+		}
+		System.out.println("[weave] verified " + checked + " mixed classes, " + bad + " methods with bytecode problems");
 	}
 
 	private static void collectClassRefs(byte[] b, Set<String> out) {
