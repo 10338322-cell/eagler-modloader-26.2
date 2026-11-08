@@ -21,14 +21,36 @@ public final class EmlHooks {
 		if (common) return;
 		common = true;
 		System.out.println("[eagler-modloader] " + FabricLoaderImpl.INSTANCE.containers().size() + " built-in mods (Fabric Loader " + FabricLoaderImpl.VERSION + ")");
-		FabricLoaderImpl.INSTANCE.invokeEntrypoints("main", ModInitializer.class, ModInitializer::onInitialize);
+		runMain();
+	}
+
+	/**
+	 * Runs every "main" entrypoint that hasn't run yet. The client bootstraps (and so runs the common
+	 * ones) before the Minecraft constructor adds the client-only mods, whose "main" entrypoints then run here.
+	 */
+	private static void runMain() {
+		RuntimeException err = null;
+		for (EmlEntrypoint e : GeneratedMods.entrypoints("main")) {
+			if (e.ran) continue;
+			e.ran = true;
+			try {
+				Object o = e.get();
+				if (o instanceof ModInitializer) ((ModInitializer) o).onInitialize();
+			} catch (Throwable t) {
+				if (err == null) err = new RuntimeException("Could not execute entrypoint stage 'main' due to errors, provided by '" + e.modId + "'", t);
+				else err.addSuppressed(t);
+			}
+		}
+		if (err != null) throw err;
 	}
 
 	public static void startClient(File runDir, Object game) {
 		if (client) return;
 		client = true;
 		FabricLoaderImpl.INSTANCE.setGameInstance(game);
+		GeneratedMods.enableClient();
 		startCommon();
+		runMain(); // client-only mods' "main" entrypoints
 		FabricLoaderImpl.INSTANCE.invokeEntrypoints("client", ClientModInitializer.class, ClientModInitializer::onInitializeClient);
 	}
 }

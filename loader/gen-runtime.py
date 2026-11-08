@@ -72,8 +72,13 @@ def main():
     mods_json, classes, loader_version, out = sys.argv[1:5]
     mods = json.load(open(mods_json))
     warnings = []
-    lines = []
+    lines = []        # entrypoints usable everywhere (client and singleplayer server worker)
+    client_lines = [] # client-only: key "client", or a mod whose environment is "client"
     for m in mods:
+        try:
+            env = json.loads(m["fabricModJson"] or "{}").get("environment", "*")
+        except Exception:
+            env = "*"
         for key, eps in sorted(m["entrypoints"].items()):
             for ep in eps:
                 adapter, value = ep["adapter"], ep["value"]
@@ -105,7 +110,8 @@ def main():
                         warnings.append("%s: entrypoint class %s not found; skipped" % (m["id"], value))
                         continue
                     expr = "new %s()" % value.replace('$', '.')
-                lines.append('\t\tadd(%s, %s, %s, () -> %s);' % (java_str(key), java_str(m["id"]), java_str(value), expr))
+                line = '\t\tadd(%s, %s, %s, () -> %s);' % (java_str(key), java_str(m["id"]), java_str(value), expr)
+                (client_lines if key == "client" or env == "client" else lines).append(line)
     mod_rows = []
     for m in mods:
         mod_rows.append("\t\t{ %s, %s, %s }," % (java_str(m["id"]), java_str(m["parent"]) if m["parent"] else "null", java_long_str(m["fabricModJson"])))
@@ -129,31 +135,51 @@ public final class GeneratedMods {
 	};
 
 	private static Map<String, List<EmlEntrypoint>> entrypoints;
+	private static boolean client;
 
 	public static synchronized List<EmlEntrypoint> entrypoints(String key) {
-		if (entrypoints == null) {
-			entrypoints = new HashMap<>();
-			register();
-		}
+		init();
 		List<EmlEntrypoint> l = entrypoints.get(key);
 		return l != null ? l : Collections.<EmlEntrypoint>emptyList();
+	}
+
+	private static void init() {
+		if (entrypoints == null) {
+			entrypoints = new HashMap<>();
+			registerCommon();
+		}
+	}
+
+	/**
+	 * Adds the client-only entrypoints. Only the client calls this, so the singleplayer server worker
+	 * (compiled separately, without the client's classes) never references them.
+	 */
+	public static synchronized void enableClient() {
+		init();
+		if (client) return;
+		client = true;
+		registerClient();
 	}
 
 	private static void add(String key, String modId, String value, Supplier<Object> factory) {
 		entrypoints.computeIfAbsent(key, k -> new ArrayList<>()).add(new EmlEntrypoint(modId, value, factory));
 	}
 
-	private static void register() {
+	private static void registerCommon() {
+%s
+	}
+
+	private static void registerClient() {
 %s
 	}
 
 	private GeneratedMods() {
 	}
 }
-""" % (java_str(loader_version), "\n".join(mod_rows), "\n".join(lines))
+""" % (java_str(loader_version), "\n".join(mod_rows), "\n".join(lines), "\n".join(client_lines))
     os.makedirs(os.path.dirname(out), exist_ok=True)
     open(out, "w").write(src)
-    print("[gen] %d mods, %d entrypoints" % (len(mods), len(lines)))
+    print("[gen] %d mods, %d entrypoints (%d client-only)" % (len(mods), len(lines) + len(client_lines), len(client_lines)))
     for w in warnings: print("[gen] warning: " + w)
 
 if __name__ == "__main__":
