@@ -57,6 +57,7 @@ public final class Weave {
 		Path classesOut = out.resolve("classes");
 		Files.createDirectories(classesOut);
 		System.setProperty("fabric.side", "client");
+		deleteTree(Paths.get(".mixin.out")); // Mixin's export of this round (see writeGeneratedClasses)
 
 		// injectors that don't fit Eaglercraft's game code, found by earlier rounds
 		Path disableFile = Paths.get(System.getProperty("eml.disableFile", out.resolve("disabled-injectors.txt").toString()));
@@ -238,9 +239,24 @@ public final class Weave {
 					if (!Files.exists(p)) { write(classesOut, e.getKey(), e.getValue()); n++; }
 				}
 			} catch (Throwable t) {
-				// that loader has no MixinExtras
+				System.out.println("[weave] (MixinExtras definitions via " + cl + ": " + t + ")");
 			}
 		}
+		// classes Mixin exported while applying (-Dmixin.debug.export=true): generated ones included
+		Path exported = Paths.get(".mixin.out", "class");
+		if (Files.isDirectory(exported)) {
+			try (Stream<Path> s = Files.walk(exported)) {
+				for (Path p : (Iterable<Path>) s.filter(x -> x.toString().endsWith(".class"))::iterator) {
+					String rel = exported.relativize(p).toString().replace('\\', '/');
+					Path dest = classesOut.resolve(rel);
+					if (!Files.exists(dest)) {
+						write(classesOut, rel.substring(0, rel.length() - 6).replace('/', '.'), stripTypeAnnotations(Files.readAllBytes(p)));
+						n++;
+					}
+				}
+			}
+		}
+		int missing = 0;
 		// Mixin's synthetic classes (e.g. Target$Anonymous$hash): ask the transformer for every missing reference
 		Set<String> tried = new java.util.HashSet<>();
 		boolean again = true;
@@ -261,12 +277,14 @@ public final class Weave {
 				try {
 					b = mixin.generateClass(MixinEnvironment.getCurrentEnvironment(), dotted);
 				} catch (Throwable t) {
-					// not a generated class
+					if (genErrors++ < 5) System.out.println("[weave] (generateClass " + dotted + ": " + t + ")");
 				}
 				if (b != null) {
 					write(classesOut, dotted, stripTypeAnnotations(b));
 					n++;
 					again = true;
+				} else if (internal.contains("$Anonymous$") || internal.contains("mixinextras")) {
+					if (missing++ < 20) System.out.println("[weave] still missing: " + dotted);
 				}
 			}
 		}
@@ -368,6 +386,7 @@ public final class Weave {
 		return (IMixinTransformer) t;
 	}
 
+	private static int genErrors;
 	private static final java.util.Map<String, Integer> skipped = new java.util.TreeMap<>();
 
 	private static byte[] transform(FabricLauncher launcher, IMixinTransformer mixin, String name, List<String> failures) {

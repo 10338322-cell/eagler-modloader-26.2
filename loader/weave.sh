@@ -75,7 +75,7 @@ allprojects {
           round++
           int code = run(["java", "-Xmx6g",
             "-Deml.gameJar=" + classes.absolutePath, "-Deml.gameLibs=" + cp, "-Deml.runDir=$RUN",
-            "-Deml.disableFile=$WORK/disabled-injectors.txt", "-Dfabric.gameVersion=26.2",
+            "-Deml.disableFile=$WORK/disabled-injectors.txt", "-Dfabric.gameVersion=26.2", "-Dmixin.debug.export=true",
             "-cp", "$WORK/weaver" + File.pathSeparator + "$DEPS", "eaglermodloader.weaver.Weave", out.absolutePath], "weave.log", [0, 3])
           if (code == 0) break
           if (round >= 12) throw new GradleException("eagler-modloader: weaving did not settle after 12 rounds")
