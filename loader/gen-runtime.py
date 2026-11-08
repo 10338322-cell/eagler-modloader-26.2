@@ -60,6 +60,14 @@ def class_members(classes_dir, cls):
     methods, i = members(i)
     return fields, methods
 
+# entrypoint keys whose interface is known, for "Class::method" entrypoints
+KNOWN = {
+    "main": "net.fabricmc.api.ModInitializer",
+    "client": "net.fabricmc.api.ClientModInitializer",
+    "server": "net.fabricmc.api.DedicatedServerModInitializer",
+    "preLaunch": "net.fabricmc.loader.api.entrypoint.PreLaunchEntrypoint",
+}
+
 def main():
     mods_json, classes, loader_version, out = sys.argv[1:5]
     mods = json.load(open(mods_json))
@@ -74,11 +82,22 @@ def main():
                     continue
                 if "::" in value:
                     cls, member = value.split("::", 1)
+                    jcls = cls.replace('$', '.')
                     mem = class_members(classes, cls)
                     if mem and member in mem[0]:
-                        expr = "%s.%s" % (cls.replace('$', '.'), member)
+                        expr = "%s.%s" % (jcls, member)
+                    elif mem and member in mem[1] and key in KNOWN:
+                        # Fabric's default adapter turns "Class::method" into the entrypoint interface
+                        iface = KNOWN[key]
+                        noarg = [acc for acc, desc in mem[1][member] if desc.startswith("()")]
+                        if not noarg:
+                            warnings.append("%s: entrypoint '%s' needs a no-argument method; skipped" % (m["id"], value))
+                            continue
+                        call = ("%s.%s()" % (jcls, member)) if noarg[0] & 0x0008 else ("new %s().%s()" % (jcls, member))
+                        expr = "(%s) () -> %s" % (iface, call)
+                        expr = "(Object) (%s)" % expr
                     else:
-                        warnings.append("%s: entrypoint '%s' (method reference) isn't supported yet; skipped" % (m["id"], value))
+                        warnings.append("%s: entrypoint '%s' (method reference for '%s') isn't supported; skipped" % (m["id"], value, key))
                         continue
                 else:
                     mem = class_members(classes, value)

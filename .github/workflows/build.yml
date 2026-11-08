@@ -1,13 +1,12 @@
 name: Build Eaglercraft 26.2
 
-# Builds Eaglercraft 26.2 into one standalone HTML file.
-# Step 1 (now): plain 26.2, to prove the build works on GitHub's machines.
-# Step 2 (next): the Fabric mods in mods/ are woven into the game during this build.
+# Builds Eaglercraft 26.2 with the Fabric mods in mods/ built in, as one standalone HTML file.
+# loader/weave.sh hooks build-time Fabric into the workspace's Gradle build; see the README.
 
 on:
   push:
     branches: [main]
-    paths: ["mods/**"]
+    paths: ["mods/**", "loader/**"]
   workflow_dispatch:
 
 permissions:
@@ -55,6 +54,9 @@ jobs:
           git checkout -q FETCH_HEAD
           chmod +x gradlew
 
+      - name: Set up build-time Fabric
+        run: chmod +x loader/weave.sh && loader/weave.sh workspace eml
+
       - name: Build the standalone HTML
         working-directory: workspace
         env:
@@ -62,13 +64,17 @@ jobs:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false"
         run: |
           mkdir -p ../out
-          node wasm-toolchain/build-single-html.js --output ../out/eaglercraft-26.2.html
+          node wasm-toolchain/build-single-html.js --output ../out/eaglercraft-26.2-modded.html
+          grep -v '^#' ../eml/disabled-injectors.txt > ../out/turned-off-injectors.txt 2>/dev/null || true
 
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
-          name: eaglercraft-26.2
-          path: out/
+          name: eaglercraft-26.2-modded
+          path: |
+            out/
+            eml/weave.log
+            eml/gen.log
           retention-days: 14
 
       - name: Publish release
@@ -77,5 +83,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="build-${GITHUB_RUN_NUMBER}"
-          gh release create "$tag" out/* --title "Build ${GITHUB_RUN_NUMBER}" \
-            --notes "Built from ${GITHUB_SHA::7}. Mods: $(ls mods | tr '\n' ' ')" --latest
+          {
+            echo "Eaglercraft 26.2 with these Fabric mods built in (from ${GITHUB_SHA::7}):"
+            echo; ls mods | sed 's/^/- /'
+            if [ -s out/turned-off-injectors.txt ]; then
+              echo; echo "These mod injections don't fit Eaglercraft's version of the game and were turned off:"
+              echo; sed 's/^/- /' out/turned-off-injectors.txt
+            fi
+          } > notes.md
+          gh release create "$tag" out/*.html --title "Build ${GITHUB_RUN_NUMBER}" --notes-file notes.md --latest
