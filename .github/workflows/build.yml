@@ -64,19 +64,33 @@ jobs:
           git checkout -q FETCH_HEAD
           chmod +x gradlew
 
-      - name: Set up build-time Fabric
-        run: chmod +x loader/weave.sh && loader/weave.sh workspace eml
-
       - name: Game sounds from Mojang (not in the workspace)
         run: |
           python3 loader/fetch-sounds.py 26.2 eml/sounds eml/music
           cd workspace
-          ./gradlew -q --no-daemon :platform:compileJava
-          CP=platform/build/classes/java/main
-          PK=net.lax1dude.eaglercraft.v1_8.sp.server.export.EPKPackagerMain
           mkdir -p target_teavm/build/web
-          java -cp "$CP" $PK ../eml/sounds target_teavm/build/web/sounds.epk sounds.epk --include-web-unreachable
-          java -cp "$CP" $PK ../eml/music target_teavm/build/web/music.epk music.epk --include-web-unreachable
+          # the workspace's own EPK packager, run the way its assets.epk task runs it (desktop platform)
+          cat > ../eml/epk.init.gradle <<'EOF2'
+          allprojects {
+            afterEvaluate { p ->
+              if (p.path != ":target_lwjgl_desktop") return
+              ["sounds", "music"].each { n ->
+                p.tasks.register("emlPack_" + n, JavaExec) {
+                  classpath = p.sourceSets.main.runtimeClasspath
+                  mainClass = "net.lax1dude.eaglercraft.v1_8.sp.server.export.EPKPackagerMain"
+                  args(new File(p.rootDir, "../eml/" + n).absolutePath,
+                       new File(p.rootDir, "target_teavm/build/web/" + n + ".epk").absolutePath,
+                       n + ".epk", "--include-web-unreachable")
+                }
+              }
+            }
+          }
+          EOF2
+          ./gradlew --no-daemon --console=plain -I ../eml/epk.init.gradle :target_lwjgl_desktop:emlPack_sounds :target_lwjgl_desktop:emlPack_music
+          ls -la target_teavm/build/web/
+
+      - name: Set up build-time Fabric
+        run: chmod +x loader/weave.sh && loader/weave.sh workspace eml
 
       - name: Let TeaVM skip null checks and optimization in methods it can't handle
         run: |
