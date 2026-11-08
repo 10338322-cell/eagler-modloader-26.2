@@ -52,7 +52,7 @@ public final class Weave {
 		Knot knot = new Knot(EnvType.CLIENT);
 		knot.init(new String[0]);
 		FabricLauncher launcher = FabricLauncherBase.getLauncher();
-		IMixinTransformer mixin = (IMixinTransformer) MixinEnvironment.getCurrentEnvironment().getActiveTransformer();
+		IMixinTransformer mixin = knotMixinTransformer();
 
 		Path gameJar = Paths.get(System.getProperty("eml.gameJar")).toAbsolutePath();
 		int game = 0, modCls = 0;
@@ -111,13 +111,28 @@ public final class Weave {
 
 		System.out.println("[weave] game classes: " + game);
 		System.out.println("[weave] mod classes: " + modCls + " from " + (mods.size()) + " mods (incl. builtin)");
+		for (java.util.Map.Entry<String, Integer> e : skipped.entrySet()) System.out.println("[weave] " + e.getValue() + " mod classes skipped: " + e.getKey());
 		if (!failures.isEmpty()) {
 			System.out.println("[weave] " + failures.size() + " game classes failed to transform:");
-			for (String f : failures) System.out.println("  " + f);
+			for (int i = 0; i < Math.min(failures.size(), 40); i++) System.out.println("[weave]   " + failures.get(i));
 			System.exit(2);
 		}
 		System.exit(0); // Knot leaves non-daemon threads behind
 	}
+
+	/** The transformer Knot itself uses (MixinServiceKnot.transformer, package-private). */
+	private static IMixinTransformer knotMixinTransformer() throws Exception {
+		Object t = MixinEnvironment.getCurrentEnvironment().getActiveTransformer();
+		if (t == null) {
+			java.lang.reflect.Field f = Class.forName("net.fabricmc.loader.impl.launch.knot.MixinServiceKnot").getDeclaredField("transformer");
+			f.setAccessible(true);
+			t = f.get(null);
+		}
+		if (t == null) throw new IllegalStateException("no Mixin transformer: Knot did not initialize Mixin");
+		return (IMixinTransformer) t;
+	}
+
+	private static final java.util.Map<String, Integer> skipped = new java.util.TreeMap<>();
 
 	private static byte[] transform(FabricLauncher launcher, IMixinTransformer mixin, String name, List<String> failures) {
 		try {
@@ -131,7 +146,10 @@ public final class Weave {
 			// mixin classes can't be transformed (or loaded) as normal classes: that's expected
 			if (msg.contains("is a mixin class") || msg.contains("IllegalClassLoadError")) return null;
 			if (failures != null) failures.add(name + ": " + msg);
-			else System.out.println("[weave] skipped mod class " + name + ": " + msg);
+			else {
+				skipped.merge(msg, 1, Integer::sum);
+				if (skipped.get(msg) <= 3) System.out.println("[weave] skipped mod class " + name + ": " + msg);
+			}
 			return null;
 		}
 	}

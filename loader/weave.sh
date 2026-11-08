@@ -64,7 +64,7 @@ allprojects {
           def res = p.providers.exec { commandLine cmd; ignoreExitValue = true }
           def log = res.standardOutput.asText.get() + res.standardError.asText.get()
           new File("$WORK/" + logName).text = log
-          println(log.readLines().findAll { it.startsWith("[") || it.contains("ERROR") || it.contains("error:") || it.contains("Exception") }.take(300).join("\n"))
+          println(log.readLines().findAll { it.startsWith("[weave]") || it.startsWith("[gen]") || it.contains("/ERROR]") || it.contains("/WARN]") || it.contains("error:") || it.contains("Caused by") }.take(400).join("\n"))
           if (res.result.get().exitValue != 0) throw new GradleException("eagler-modloader: " + logName + " failed (see $WORK/" + logName + ")")
         }
         // 1. weave
