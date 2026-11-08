@@ -64,6 +64,7 @@ jobs:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false"
         run: |
           mkdir -p ../out
+          npm install --no-audit --no-fund
           node wasm-toolchain/build-single-html.js --output ../out/eaglercraft-26.2-modded.html
           grep -v '^#' ../eml/disabled-injectors.txt > ../out/turned-off-injectors.txt 2>/dev/null || true
 
