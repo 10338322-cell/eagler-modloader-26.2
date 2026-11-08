@@ -1,0 +1,27 @@
+# Never commit Minecraft code or assets: every build downloads them itself.
+/workspace/
+/generated-project/
+*.mcpr
+client.jar
+minecraft-*.jar
+**/decompiled/
+
+# Build output (finished HTML goes to GitHub Releases, not the repo)
+/out/
+/dist/
+build/
+.gradle/
+*.html
+!docs/**/*.html
+
+# Jars belong only in mods/
+*.jar
+!mods/*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Editors / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
