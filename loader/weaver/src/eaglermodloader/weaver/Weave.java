@@ -80,7 +80,7 @@ public final class Weave {
 		for (String name : classNames(gameJar)) {
 			byte[] b = transform(launcher, mixin, name, failures);
 			if (b == null) continue;
-			write(classesOut, name, b);
+			write(classesOut, name, stripTypeAnnotations(b)); // mixins may have merged mod type annotations in
 			game++;
 		}
 
@@ -98,7 +98,7 @@ public final class Weave {
 				for (String name : classNames(root)) {
 					byte[] b = transform(launcher, mixin, name, null);
 					if (b == null) continue;
-					write(classesOut, name, b);
+					write(classesOut, name, stripTypeAnnotations(b));
 					modCls++;
 				}
 			}
@@ -209,6 +209,70 @@ public final class Weave {
 			}
 		}
 		return cls + "#*";
+	}
+
+	/**
+	 * Drops type annotations (@Nullable on a type use and the like) from mod classes. They do nothing at
+	 * runtime, but javac refuses to read classes whose type annotations refer to annotation classes it
+	 * can't find (e.g. JSpecify), and the game's other modules are compiled against the woven classes.
+	 */
+	static byte[] stripTypeAnnotations(byte[] b) {
+		org.objectweb.asm.ClassReader cr = new org.objectweb.asm.ClassReader(b);
+		org.objectweb.asm.ClassWriter cw = new org.objectweb.asm.ClassWriter(cr, 0);
+		final int api = org.objectweb.asm.Opcodes.ASM9;
+		cr.accept(new org.objectweb.asm.ClassVisitor(api, cw) {
+			@Override
+			public org.objectweb.asm.AnnotationVisitor visitTypeAnnotation(int ref, org.objectweb.asm.TypePath path, String desc, boolean visible) {
+				return null;
+			}
+
+			@Override
+			public org.objectweb.asm.FieldVisitor visitField(int access, String name, String desc, String sig, Object value) {
+				return new org.objectweb.asm.FieldVisitor(api, super.visitField(access, name, desc, sig, value)) {
+					@Override
+					public org.objectweb.asm.AnnotationVisitor visitTypeAnnotation(int ref, org.objectweb.asm.TypePath path, String d, boolean v) {
+						return null;
+					}
+				};
+			}
+
+			@Override
+			public org.objectweb.asm.RecordComponentVisitor visitRecordComponent(String name, String desc, String sig) {
+				return new org.objectweb.asm.RecordComponentVisitor(api, super.visitRecordComponent(name, desc, sig)) {
+					@Override
+					public org.objectweb.asm.AnnotationVisitor visitTypeAnnotation(int ref, org.objectweb.asm.TypePath path, String d, boolean v) {
+						return null;
+					}
+				};
+			}
+
+			@Override
+			public org.objectweb.asm.MethodVisitor visitMethod(int access, String name, String desc, String sig, String[] ex) {
+				return new org.objectweb.asm.MethodVisitor(api, super.visitMethod(access, name, desc, sig, ex)) {
+					@Override
+					public org.objectweb.asm.AnnotationVisitor visitTypeAnnotation(int ref, org.objectweb.asm.TypePath path, String d, boolean v) {
+						return null;
+					}
+
+					@Override
+					public org.objectweb.asm.AnnotationVisitor visitInsnAnnotation(int ref, org.objectweb.asm.TypePath path, String d, boolean v) {
+						return null;
+					}
+
+					@Override
+					public org.objectweb.asm.AnnotationVisitor visitTryCatchAnnotation(int ref, org.objectweb.asm.TypePath path, String d, boolean v) {
+						return null;
+					}
+
+					@Override
+					public org.objectweb.asm.AnnotationVisitor visitLocalVariableAnnotation(int ref, org.objectweb.asm.TypePath path, org.objectweb.asm.Label[] start,
+							org.objectweb.asm.Label[] end, int[] index, String d, boolean v) {
+						return null;
+					}
+				};
+			}
+		}, 0);
+		return cw.toByteArray();
 	}
 
 	private static void deleteTree(Path p) throws IOException {
