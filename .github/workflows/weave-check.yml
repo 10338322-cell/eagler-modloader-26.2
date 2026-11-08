@@ -33,9 +33,9 @@ jobs:
           chmod +x gradlew
       - name: Set up build-time Fabric
         run: chmod +x loader/weave.sh && loader/weave.sh workspace eml
-      - name: Compile the game and weave the mods
+      - name: Compile the game, weave the mods, compile the rest against them
         working-directory: workspace
-        run: ./gradlew --no-daemon --console=plain :game:compileJava
+        run: ./gradlew --no-daemon --console=plain compileJava
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
