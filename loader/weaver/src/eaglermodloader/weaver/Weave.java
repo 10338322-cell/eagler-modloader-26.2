@@ -55,6 +55,7 @@ public final class Weave {
 		}
 		Path out = Paths.get(args[0]).toAbsolutePath();
 		Path classesOut = out.resolve("classes");
+		deleteTree(classesOut); // each round starts clean: generated names change between rounds
 		Files.createDirectories(classesOut);
 		System.setProperty("fabric.side", "client");
 		deleteTree(Paths.get(".mixin.out")); // Mixin's export of this round (see writeGeneratedClasses)

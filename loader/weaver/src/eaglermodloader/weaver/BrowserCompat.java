@@ -23,8 +23,8 @@ import org.objectweb.asm.tree.TypeInsnNode;
 
 /**
  * Switches off code that can't work in a browser (see loader/browser-compat.txt), so the browser
- * compiler doesn't need Java APIs it doesn't have: listed methods return a default value (nothing,
- * null, 0, false); listed constructors throw.
+ * compiler doesn't need Java APIs it doesn't have: listed methods return a default value (nothing, 0,
+ * false, an empty list/set/map/Optional/string, else null); listed constructors throw.
  *
  * Lines: "some.Class#method" (every overload), "some.Class#*" (every method). # starts a comment.
  */
@@ -82,7 +82,24 @@ final class BrowserCompat {
 			case Type.LONG: body.add(new InsnNode(Opcodes.LCONST_0)); body.add(new InsnNode(Opcodes.LRETURN)); break;
 			case Type.FLOAT: body.add(new InsnNode(Opcodes.FCONST_0)); body.add(new InsnNode(Opcodes.FRETURN)); break;
 			case Type.DOUBLE: body.add(new InsnNode(Opcodes.DCONST_0)); body.add(new InsnNode(Opcodes.DRETURN)); break;
-			default: body.add(new InsnNode(Opcodes.ACONST_NULL)); body.add(new InsnNode(Opcodes.ARETURN)); break;
+			default:
+				String d = ret.getDescriptor();
+				// empty instead of null where callers are likely to iterate
+				if (d.equals("Ljava/util/List;") || d.equals("Ljava/util/Collection;") || d.equals("Ljava/lang/Iterable;")) {
+					body.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/util/Collections", "emptyList", "()Ljava/util/List;", false));
+				} else if (d.equals("Ljava/util/Set;")) {
+					body.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/util/Collections", "emptySet", "()Ljava/util/Set;", false));
+				} else if (d.equals("Ljava/util/Map;")) {
+					body.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/util/Collections", "emptyMap", "()Ljava/util/Map;", false));
+				} else if (d.equals("Ljava/util/Optional;")) {
+					body.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/util/Optional", "empty", "()Ljava/util/Optional;", false));
+				} else if (d.equals("Ljava/lang/String;")) {
+					body.add(new LdcInsnNode(""));
+				} else {
+					body.add(new InsnNode(Opcodes.ACONST_NULL));
+				}
+				body.add(new InsnNode(Opcodes.ARETURN));
+				break;
 			}
 		}
 		m.instructions = body;
