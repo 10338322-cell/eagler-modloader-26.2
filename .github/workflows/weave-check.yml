@@ -8,6 +8,13 @@ on:
     branches: [main]
     paths: ["mods/**", "loader/**", ".github/workflows/weave-check.yml"]
   workflow_dispatch:
+    inputs:
+      debug_class:
+        description: "Print the woven bytecode of this class (e.g. net/minecraft/client/Minecraft.class)"
+        required: false
+      debug_method:
+        description: "...only this method (name)"
+        required: false
 
 env:
   WORKSPACE_REPO: https://github.com/kingjoeishere/Eaglercraft-26.2-Workspace
@@ -44,6 +51,13 @@ jobs:
           mkdir -p ../teavm-check
           javac -nowarn -cp "$CP" -d ../teavm-check ../loader/tools/TeaVMCheck.java
           java -cp "$CP:../teavm-check" TeaVMCheck game/build/classes/java/main all | tail -80
+      - name: Show a method (debug)
+        if: ${{ inputs.debug_class != '' }}
+        working-directory: workspace/game/build/classes/java/main
+        env:
+          DC: ${{ inputs.debug_class }}
+          DM: ${{ inputs.debug_method }}
+        run: javap -c -p -l "$DC" | awk -v m="$DM" 'index($0, m"(") && /^  [a-z]/ {on=1} on && /^  [a-z].*\(/ && !index($0, m"(") {on=0} on' | head -400
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
