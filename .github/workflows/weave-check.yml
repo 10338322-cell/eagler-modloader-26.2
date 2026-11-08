@@ -36,6 +36,14 @@ jobs:
       - name: Compile the game, weave the mods, compile the rest against them
         working-directory: workspace
         run: ./gradlew --no-daemon --console=plain compileJava
+      - name: Check the woven classes with the browser compiler's front end
+        working-directory: workspace
+        run: |
+          ./gradlew -q --no-daemon :target_teavm_wasm_gc:printTeaVMToolClasspath > ../teavm-cp.txt
+          CP="$(grep '\.jar$' ../teavm-cp.txt | tr '\n' ':')"
+          mkdir -p ../teavm-check
+          javac -nowarn -cp "$CP" -d ../teavm-check ../loader/tools/TeaVMCheck.java
+          java -cp "$CP:../teavm-check" TeaVMCheck game/build/classes/java/main all | tail -80
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
