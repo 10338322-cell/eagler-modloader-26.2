@@ -86,9 +86,13 @@ public final class EaglerGameProvider implements GameProvider {
 			if (Files.exists(cp)) parent.add(cp);
 		}
 		launcher.setValidParentClassPath(parent);
+		transformer.locateEntrypoints(launcher, gameJars);
 	}
 
-	@Override public GameTransformer getEntrypointTransformer() { return new GameTransformer(); }
+	/** No game patches (the hooks are mixins in the built-in eaglermodloader mod), but Knot still needs an initialized transformer. */
+	private final GameTransformer transformer = new GameTransformer();
+
+	@Override public GameTransformer getEntrypointTransformer() { return transformer; }
 
 	@Override
 	public void unlockClassPath(FabricLauncher launcher) {
