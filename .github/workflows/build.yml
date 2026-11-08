@@ -2,12 +2,22 @@ name: Build Eaglercraft 26.2
 
 # Builds Eaglercraft 26.2 with the Fabric mods in mods/ built in, as one standalone HTML file.
 # loader/weave.sh hooks build-time Fabric into the workspace's Gradle build; see the README.
+#
+# Test builds (every push that changes mods/ or loader/, and manual runs): faster, lighter compression,
+# published as a pre-release. Release builds (push a tag like v1.0, or a manual run with "release"
+# ticked): maximum compression, published as a normal release.
 
 on:
   push:
     branches: [main]
     paths: ["mods/**", "loader/**"]
+    tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Release build (maximum compression, published as a normal release)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -70,12 +80,14 @@ jobs:
       - name: Build the standalone HTML
         working-directory: workspace
         env:
+          RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.release == true }}
           EAGLER_BUILD_CAP_MIB: "13312"
           GRADLE_OPTS: "-Dorg.gradle.daemon=false"
         run: |
           mkdir -p ../out
           npm install --no-audit --no-fund
-          node wasm-toolchain/build-single-html.js --output ../out/eaglercraft-26.2-modded.html
+          if [ "$RELEASE" = "true" ]; then FAST=""; else FAST="--fast-package"; fi
+          node wasm-toolchain/build-single-html.js $FAST --output ../out/eaglercraft-26.2-modded.html
           grep -v '^#' ../eml/disabled-injectors.txt > ../out/turned-off-injectors.txt 2>/dev/null || true
 
       - name: Upload build
@@ -88,13 +100,20 @@ jobs:
             eml/gen.log
           retention-days: 14
 
-      - name: Publish release
-        if: github.ref == 'refs/heads/main'
+      - name: Publish
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.release == true }}
         run: |
-          tag="build-${GITHUB_RUN_NUMBER}"
+          if [ "$RELEASE" = "true" ]; then
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then tag="${GITHUB_REF_NAME}"; else tag="release-${GITHUB_RUN_NUMBER}"; fi
+            title="$tag"; kind=(--latest)
+          else
+            tag="test-${GITHUB_RUN_NUMBER}"; title="Test build ${GITHUB_RUN_NUMBER}"; kind=(--prerelease)
+          fi
           {
+            if [ "$RELEASE" != "true" ]; then echo "Test build: lighter compression, so the file is a bit larger."; echo; fi
             echo "Eaglercraft 26.2 with these Fabric mods built in (from ${GITHUB_SHA::7}):"
             echo; ls mods | sed 's/^/- /'
             if [ -s out/turned-off-injectors.txt ]; then
@@ -102,4 +121,4 @@ jobs:
               echo; sed 's/^/- /' out/turned-off-injectors.txt
             fi
           } > notes.md
-          gh release create "$tag" out/*.html --title "Build ${GITHUB_RUN_NUMBER}" --notes-file notes.md --latest
+          gh release create "$tag" out/*.html --title "$title" --notes-file notes.md "${kind[@]}"
