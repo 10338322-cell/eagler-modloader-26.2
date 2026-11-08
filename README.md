@@ -13,6 +13,13 @@ Eaglercraft is Minecraft compiled to run in a web browser. A browser can't load 
 
 To remove a mod, delete its jar and build again.
 
+## Add-ons (Java servers with a Microsoft account)
+
+Some things can't be done by a mod inside the browser game. Scripts in [`addons/`](addons) are added to
+the web page itself. The first one is **Wispcraft**: plain Eaglercraft 26.2 can't sign in with a
+Microsoft account, so most Java Edition servers (online mode) refuse it. Wispcraft lets the game join
+regular Java servers through a Wisp proxy and sign in with your Microsoft account.
+
 ## What works
 
 | Works well | Needs patching or won't work |
@@ -43,9 +50,10 @@ The build needs at least 10 GB of memory. GitHub's free machines for **public** 
 - **[Fabric](https://fabricmc.net)** (loader and API) by FabricMC: Apache-2.0.
 - **[Mod Menu](https://github.com/TerraformersMC/ModMenu)** by TerraformersMC: MIT.
 - **[Placeholder API](https://github.com/Patbox/TextPlaceholderAPI)** by Patbox: LGPL-3.0.
+- **[Wispcraft](https://github.com/MercuryWorkshop/wispcraft)** by Mercury Workshop (ISC), using [epoxy-tls](https://github.com/r58Playz/epoxy-tls).
 - **Chromium Client** by maz_35, which first showed that Fabric mods can be compiled into Eaglercraft 26.2.
 
-Each mod in `mods/` keeps its own license.
+Each mod in `mods/` and each add-on in `addons/` keeps its own license.
 
 ## License and disclaimer
 

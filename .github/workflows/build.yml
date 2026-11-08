@@ -10,7 +10,7 @@ name: Build Eaglercraft 26.2
 on:
   push:
     branches: [main]
-    paths: ["mods/**", "loader/**"]
+    paths: ["mods/**", "loader/**", "addons/**"]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -88,6 +88,7 @@ jobs:
           npm install --no-audit --no-fund
           if [ "$RELEASE" = "true" ]; then FAST=""; else FAST="--fast-package"; fi
           node wasm-toolchain/build-single-html.js $FAST --output ../out/eaglercraft-26.2-modded.html
+          python3 ../loader/inject-addons.py ../addons ../out/eaglercraft-26.2-modded.html
           grep -v '^#' ../eml/disabled-injectors.txt > ../out/turned-off-injectors.txt 2>/dev/null || true
 
       - name: Upload build
@@ -116,6 +117,7 @@ jobs:
             if [ "$RELEASE" != "true" ]; then echo "Test build: lighter compression, so the file is a bit larger."; echo; fi
             echo "Eaglercraft 26.2 with these Fabric mods built in (from ${GITHUB_SHA::7}):"
             echo; ls mods | sed 's/^/- /'
+            if ls addons/*.js >/dev/null 2>&1; then echo; echo "Add-ons:"; echo; ls addons/*.js | xargs -n1 basename | sed 's/^/- /'; fi
             if [ -s out/turned-off-injectors.txt ]; then
               echo; echo "These mod injections don't fit Eaglercraft's version of the game and were turned off:"
               echo; sed 's/^/- /' out/turned-off-injectors.txt
