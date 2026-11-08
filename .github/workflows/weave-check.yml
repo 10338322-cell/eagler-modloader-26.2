@@ -44,4 +44,5 @@ jobs:
           path: |
             eml/weave.log
             eml/woven/mods.json
+            eml/disabled-injectors.txt
           retention-days: 14

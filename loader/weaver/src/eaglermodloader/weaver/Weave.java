@@ -17,7 +17,14 @@ import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import org.spongepowered.asm.mixin.MixinEnvironment;
+import org.spongepowered.asm.mixin.Mixins;
+import org.spongepowered.asm.mixin.transformer.Config;
 import org.spongepowered.asm.mixin.transformer.IMixinTransformer;
 
 import net.fabricmc.api.EnvType;
@@ -48,6 +55,19 @@ public final class Weave {
 		Path classesOut = out.resolve("classes");
 		Files.createDirectories(classesOut);
 		System.setProperty("fabric.side", "client");
+
+		// injectors that don't fit Eaglercraft's game code, found by earlier rounds
+		Path disableFile = Paths.get(System.getProperty("eml.disableFile", out.resolve("disabled-injectors.txt").toString()));
+		List<String> disabledList = MixinDisabler.readList(disableFile);
+		MixinDisabler disabler = new MixinDisabler(disabledList);
+		if (!disabler.isEmpty()) {
+			Path run = Paths.get(System.getProperty("eml.runDir"));
+			Path patched = run.resolveSibling(run.getFileName() + "-patched");
+			deleteTree(patched);
+			disabler.patchMods(run.resolve("mods"), patched.resolve("mods"));
+			Files.createDirectories(patched.resolve("config"));
+			System.setProperty("eml.runDir", patched.toString());
+		}
 
 		Knot knot = new Knot(EnvType.CLIENT);
 		knot.init(new String[0]);
@@ -113,11 +133,69 @@ public final class Weave {
 		System.out.println("[weave] mod classes: " + modCls + " from " + (mods.size()) + " mods (incl. builtin)");
 		for (java.util.Map.Entry<String, Integer> e : skipped.entrySet()) System.out.println("[weave] " + e.getValue() + " mod classes skipped: " + e.getKey());
 		if (!failures.isEmpty()) {
+			Map<String, String> configPackages = new HashMap<>();
+			for (Config c : Mixins.getConfigs()) configPackages.put(c.getName(), c.getConfig().getMixinPackage());
+			List<String> added = new ArrayList<>();
+			for (String f : failures) {
+				String entry = disableEntry(f, configPackages);
+				if (entry != null && !disabledList.contains(entry) && !added.contains(entry)) {
+					added.add(entry);
+					added.add("# " + f.replace('\n', ' ').substring(0, Math.min(f.length(), 400)));
+				}
+			}
+			if (!added.isEmpty()) {
+				List<String> all = new ArrayList<>(disabledList);
+				all.addAll(added);
+				Files.write(disableFile, all, StandardCharsets.UTF_8);
+				System.out.println("[weave] " + (added.size() / 2) + " injectors don't fit Eaglercraft and were turned off; weaving again");
+				for (String a : added) if (!a.startsWith("#")) System.out.println("[weave]   off: " + a);
+				System.exit(3);
+			}
 			System.out.println("[weave] " + failures.size() + " game classes failed to transform:");
 			for (int i = 0; i < Math.min(failures.size(), 40); i++) System.out.println("[weave]   " + failures.get(i));
 			System.exit(2);
 		}
+		long off = disabledList.stream().filter(l -> !l.trim().isEmpty() && !l.startsWith("#")).count();
+		if (off > 0) {
+			System.out.println("[weave] " + off + " injectors were turned off because they don't fit Eaglercraft's game code:");
+			for (String l : disabledList) if (!l.trim().isEmpty() && !l.startsWith("#")) System.out.println("[weave]   off: " + l);
+		}
 		System.exit(0); // Knot leaves non-daemon threads behind
+	}
+
+	private static final Pattern MIXIN_REF = Pattern.compile("(?:in |on |-> )([\\w.-]+\\.json):([\\w.$]+) from mod");
+	private static final Pattern[] HANDLER = {
+		Pattern.compile("(?:Callback|Argument modifier|Redirector|Variable modifier|Constant modifier|Arguments modifier) method ([\\w$]+)\\("),
+		Pattern.compile("->@[\\w]+::([\\w$]+)\\("),
+		Pattern.compile("@[\\w]+ annotation on ([\\w$]+) could not"),
+		Pattern.compile(" method ([\\w$]+)\\([^)]*\\)[^ ]* in [\\w.-]+\\.json:"),
+	};
+
+	/** "mixin.Class#handler" for a mixin failure message, or "mixin.Class#*" if the handler isn't named. */
+	static String disableEntry(String failure, Map<String, String> configPackages) {
+		Matcher mm = MIXIN_REF.matcher(failure);
+		if (!mm.find()) return null;
+		String pkg = configPackages.get(mm.group(1));
+		if (pkg == null) return null;
+		String cls = (pkg.endsWith(".") ? pkg : pkg + ".") + mm.group(2);
+		for (Pattern p : HANDLER) {
+			Matcher hm = p.matcher(failure);
+			if (hm.find()) {
+				String h = hm.group(1);
+				// Mixin renames merged handlers: "modify$bcl000$modid$name" -> name
+				int d = h.lastIndexOf('$');
+				if (h.contains("$") && d < h.length() - 1) h = h.substring(d + 1);
+				return cls + "#" + h;
+			}
+		}
+		return cls + "#*";
+	}
+
+	private static void deleteTree(Path p) throws IOException {
+		if (!Files.exists(p)) return;
+		try (Stream<Path> s = Files.walk(p)) {
+			s.sorted(java.util.Comparator.reverseOrder()).forEach(x -> x.toFile().delete());
+		}
 	}
 
 	/** The transformer Knot itself uses (MixinServiceKnot.transformer, package-private). */

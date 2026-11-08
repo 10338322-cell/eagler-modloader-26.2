@@ -28,7 +28,7 @@ cp -r "$REPO/loader/weaver/resources/." "$WORK/weaver/"
 echo "::endgroup::"
 
 echo "::group::Mods"
-RUN="$WORK/run"; rm -rf "$RUN"; mkdir -p "$RUN/mods" "$RUN/config"
+RUN="$WORK/run"; rm -rf "$RUN" "$RUN-patched" "$WORK/disabled-injectors.txt"; mkdir -p "$RUN/mods" "$RUN/config"
 cp "$REPO"/mods/*.jar "$RUN/mods/" 2>/dev/null || true
 # the built-in "eaglermodloader" mod: mixins that start the mods' entrypoints
 IM="$WORK/internal-mod"; rm -rf "$IM"; mkdir -p "$IM/classes" "$IM/stub/eaglermodloader/runtime"
@@ -60,18 +60,26 @@ allprojects {
         def out = new File("$WORK/woven")
         out.deleteDir()
         def cp = p.sourceSets.main.compileClasspath.files.collect { it.absolutePath }.join(File.pathSeparator)
-        def run = { List<String> cmd, String logName ->
+        def run = { List<String> cmd, String logName, List<Integer> okCodes = [0] ->
           def res = p.providers.exec { commandLine cmd; ignoreExitValue = true }
           def log = res.standardOutput.asText.get() + res.standardError.asText.get()
           new File("$WORK/" + logName).text = log
-          println(log.readLines().findAll { it.startsWith("[weave]") || it.startsWith("[gen]") || it.contains("/ERROR]") || it.contains("/WARN]") || it.contains("error:") || it.contains("Caused by") }.take(400).join("\n"))
-          if (res.result.get().exitValue != 0) throw new GradleException("eagler-modloader: " + logName + " failed (see $WORK/" + logName + ")")
+          println(log.readLines().findAll { it.startsWith("[weave]") || it.startsWith("[gen]") || it.contains("/ERROR]") || it.contains("error:") || it.contains("Caused by") }.take(400).join("\n"))
+          int code = res.result.get().exitValue
+          if (!okCodes.contains(code)) throw new GradleException("eagler-modloader: " + logName + " failed (see $WORK/" + logName + ")")
+          return code
         }
-        // 1. weave
-        run(["java", "-Xmx6g",
-          "-Deml.gameJar=" + classes.absolutePath, "-Deml.gameLibs=" + cp, "-Deml.runDir=$RUN",
-          "-Dfabric.gameVersion=26.2",
-          "-cp", "$WORK/weaver" + File.pathSeparator + "$DEPS", "eaglermodloader.weaver.Weave", out.absolutePath], "weave.log")
+        // 1. weave; injectors that don't fit Eaglercraft are turned off one round at a time (exit code 3)
+        int round = 0
+        while (true) {
+          round++
+          int code = run(["java", "-Xmx6g",
+            "-Deml.gameJar=" + classes.absolutePath, "-Deml.gameLibs=" + cp, "-Deml.runDir=$RUN",
+            "-Deml.disableFile=$WORK/disabled-injectors.txt", "-Dfabric.gameVersion=26.2",
+            "-cp", "$WORK/weaver" + File.pathSeparator + "$DEPS", "eaglermodloader.weaver.Weave", out.absolutePath], "weave.log", [0, 3])
+          if (code == 0) break
+          if (round >= 12) throw new GradleException("eagler-modloader: weaving did not settle after 12 rounds")
+        }
         p.copy { from new File(out, "classes"); into classes }
         // 2. the loader API, the Mixin callback classes and our browser loader
         p.copy {
