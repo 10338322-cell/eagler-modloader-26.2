@@ -57,7 +57,7 @@ jobs:
       - name: Set up build-time Fabric
         run: chmod +x loader/weave.sh && loader/weave.sh workspace eml
 
-      - name: Make TeaVM name the method when null-check insertion fails (diagnostic)
+      - name: Let TeaVM skip null checks in methods it can't handle
         run: |
           DEPS="$(ls "$PWD"/eml/deps/*.jar | tr '\n' ':')"
           mkdir -p eml/patch-teavm && cd eml/patch-teavm
