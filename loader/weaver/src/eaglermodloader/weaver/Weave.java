@@ -23,8 +23,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.spongepowered.asm.mixin.MixinEnvironment;
-import org.spongepowered.asm.mixin.Mixins;
-import org.spongepowered.asm.mixin.transformer.Config;
 import org.spongepowered.asm.mixin.transformer.IMixinTransformer;
 
 import net.fabricmc.api.EnvType;
@@ -133,8 +131,7 @@ public final class Weave {
 		System.out.println("[weave] mod classes: " + modCls + " from " + (mods.size()) + " mods (incl. builtin)");
 		for (java.util.Map.Entry<String, Integer> e : skipped.entrySet()) System.out.println("[weave] " + e.getValue() + " mod classes skipped: " + e.getKey());
 		if (!failures.isEmpty()) {
-			Map<String, String> configPackages = new HashMap<>();
-			for (Config c : Mixins.getConfigs()) configPackages.put(c.getName(), c.getConfig().getMixinPackage());
+			Map<String, String> configPackages = mixinConfigPackages(mods);
 			List<String> added = new ArrayList<>();
 			for (String f : failures) {
 				String entry = disableEntry(f, configPackages);
@@ -170,6 +167,29 @@ public final class Weave {
 		Pattern.compile("@[\\w]+ annotation on ([\\w$]+) could not"),
 		Pattern.compile(" method ([\\w$]+)\\([^)]*\\)[^ ]* in [\\w.-]+\\.json:"),
 	};
+
+	private static final Pattern PACKAGE = Pattern.compile("\"package\"\\s*:\\s*\"([^\"]*)\"");
+
+	/** mixin config file name -> its "package", read from the mods' own files. */
+	private static Map<String, String> mixinConfigPackages(Collection<ModContainer> mods) {
+		Map<String, String> ret = new HashMap<>();
+		for (ModContainer mc : mods) {
+			ModContainerImpl m = (ModContainerImpl) mc;
+			for (String cfg : m.getMetadata().getMixinConfigs(EnvType.CLIENT)) {
+				for (Path root : m.getRootPaths()) {
+					try {
+						Path f = root.resolve(cfg);
+						if (!Files.exists(f)) continue;
+						Matcher pm = PACKAGE.matcher(new String(Files.readAllBytes(f), StandardCharsets.UTF_8));
+						if (pm.find()) ret.put(cfg, pm.group(1));
+					} catch (IOException e) {
+						// ignore: that config just can't be mapped
+					}
+				}
+			}
+		}
+		return ret;
+	}
 
 	/** "mixin.Class#handler" for a mixin failure message, or "mixin.Class#*" if the handler isn't named. */
 	static String disableEntry(String failure, Map<String, String> configPackages) {
