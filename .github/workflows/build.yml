@@ -59,7 +59,7 @@ jobs:
 
       - name: Make TeaVM name the method when null-check insertion fails (diagnostic)
         run: |
-          DEPS="$(ls eml/deps/*.jar | tr '\n' ':')"
+          DEPS="$(ls "$PWD"/eml/deps/*.jar | tr '\n' ':')"
           mkdir -p eml/patch-teavm && cd eml/patch-teavm
           javac -nowarn -cp "$DEPS" -d . ../../loader/tools/PatchTeaVM.java
           JAR="$(ls ../../workspace/wasm-toolchain/teavm-eagler-patch/teavm-core-*.jar | head -1)"
