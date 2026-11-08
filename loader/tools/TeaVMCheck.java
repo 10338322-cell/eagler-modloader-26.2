@@ -12,7 +12,7 @@ import org.teavm.model.Program;
 import org.teavm.model.ReferenceCache;
 import org.teavm.model.transformation.NullCheckFilter;
 import org.teavm.model.transformation.NullCheckInsertion;
-import org.teavm.parsing.ProgramParser;
+import org.teavm.parsing.Parser;
 
 /**
  * Diagnostic: runs the browser compiler's (TeaVM's) bytecode parser and null-check pass over each
@@ -37,8 +37,9 @@ public class TeaVMCheck {
 					if (m.instructions == null || m.instructions.size() == 0) continue;
 					methods++;
 					try {
-						ProgramParser parser = new ProgramParser(cache);
-						Program prog = parser.parse(m);
+						org.teavm.model.MethodHolder mh = new Parser(cache).parseMethod(m, cn.name.replace('/', '.'));
+						Program prog = mh.getProgram();
+						if (prog == null) continue;
 						new NullCheckInsertion(NullCheckFilter.EMPTY).transformProgram(prog,
 								new MethodReference(cn.name.replace('/', '.'), MethodDescriptor.parse(m.name + m.desc)));
 					} catch (Throwable t) {
