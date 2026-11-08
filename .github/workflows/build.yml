@@ -67,6 +67,17 @@ jobs:
       - name: Set up build-time Fabric
         run: chmod +x loader/weave.sh && loader/weave.sh workspace eml
 
+      - name: Game sounds from Mojang (not in the workspace)
+        run: |
+          python3 loader/fetch-sounds.py 26.2 eml/sounds eml/music
+          cd workspace
+          ./gradlew -q --no-daemon :platform:compileJava
+          CP=platform/build/classes/java/main
+          PK=net.lax1dude.eaglercraft.v1_8.sp.server.export.EPKPackagerMain
+          mkdir -p target_teavm/build/web
+          java -cp "$CP" $PK ../eml/sounds target_teavm/build/web/sounds.epk sounds.epk --include-web-unreachable
+          java -cp "$CP" $PK ../eml/music target_teavm/build/web/music.epk music.epk --include-web-unreachable
+
       - name: Let TeaVM skip null checks and optimization in methods it can't handle
         run: |
           DEPS="$(ls "$PWD"/eml/deps/*.jar | tr '\n' ':')"
