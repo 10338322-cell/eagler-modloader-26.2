@@ -1,0 +1,14 @@
+# Code in mods (and in Fabric Loader) that can't work in a browser, switched off at build time so the
+# browser compiler doesn't need Java APIs it doesn't have. Methods listed here return nothing / null /
+# 0 / false; constructors listed here throw. Format: some.Class#method, or some.Class#* for all of them.
+# Entries for mods that aren't in a build are ignored.
+
+# Fabric Loader: error messages use ResourceBundle.Control, which the browser doesn't have
+net.fabricmc.loader.impl.util.Localization#createBundle
+
+# Fabric API: full thread dumps for crash reports (java.lang.management isn't in the browser)
+net.fabricmc.fabric.impl.crash.report.info.ThreadPrinting#fullThreadInfoToString
+
+# Mod Menu: update checks need virtual threads and the internet; Quilt Loader isn't present
+com.terraformersmc.modmenu.util.UpdateCheckerUtil#checkForUpdates0
+com.terraformersmc.modmenu.util.mod.quilt.QuiltMod#*

@@ -64,7 +64,7 @@ allprojects {
           def res = p.providers.exec { commandLine cmd; ignoreExitValue = true }
           def log = res.standardOutput.asText.get() + res.standardError.asText.get()
           new File("$WORK/" + logName).text = log
-          println(log.readLines().findAll { it.startsWith("[weave]") || it.startsWith("[gen]") || it.contains("/ERROR]") || it.contains("error:") || it.contains("Caused by") }.take(400).join("\n"))
+          println(log.readLines().findAll { it.startsWith("[weave]") || it.startsWith("[gen]") || it.startsWith("[compat]") || it.contains("/ERROR]") || it.contains("error:") || it.contains("Caused by") }.take(400).join("\n"))
           int code = res.result.get().exitValue
           if (!okCodes.contains(code)) throw new GradleException("eagler-modloader: " + logName + " failed (see $WORK/" + logName + ")")
           return code
@@ -88,6 +88,10 @@ allprojects {
           into classes
           duplicatesStrategy = DuplicatesStrategy.EXCLUDE
         }
+        // 3. switch off code that can't work in a browser (loader/browser-compat.txt)
+        run(["java", "-cp", "$WORK/weaver" + File.pathSeparator + "$DEPS", "eaglermodloader.weaver.Weave",
+          "--browser-compat", classes.absolutePath, "$REPO/loader/browser-compat.txt"], "compat.log")
+        // 4. the list of mods and entrypoints, and the browser side of Fabric Loader
         run(["python3", "$REPO/loader/gen-runtime.py", new File(out, "mods.json").absolutePath, classes.absolutePath,
           "$LOADER_VERSION", "$WORK/gen/eaglermodloader/runtime/GeneratedMods.java"], "gen.log")
         def srcs = []

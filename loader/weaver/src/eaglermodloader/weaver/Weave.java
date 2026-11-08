@@ -49,6 +49,10 @@ public final class Weave {
 	private static final int MAX_CLASS_MAJOR = 68;
 
 	public static void main(String[] args) throws Exception {
+		if (args.length >= 3 && args[0].equals("--browser-compat")) {
+			BrowserCompat.apply(Paths.get(args[1]), Paths.get(args[2]));
+			return;
+		}
 		Path out = Paths.get(args[0]).toAbsolutePath();
 		Path classesOut = out.resolve("classes");
 		Files.createDirectories(classesOut);
@@ -126,6 +130,11 @@ public final class Weave {
 		}
 		json.append("\n]\n");
 		Files.write(out.resolve("mods.json"), json.toString().getBytes(StandardCharsets.UTF_8));
+
+		// 3. classes Mixin and MixinExtras generate while applying (copies of mixins' inner classes,
+		//    LocalRef implementations): normally defined on the fly, here written out like the rest
+		int generated = writeGeneratedClasses(classesOut, mixin, launcher);
+		System.out.println("[weave] generated classes: " + generated);
 
 		System.out.println("[weave] game classes: " + game);
 		System.out.println("[weave] mod classes: " + modCls + " from " + (mods.size()) + " mods (incl. builtin)");
@@ -209,6 +218,71 @@ public final class Weave {
 			}
 		}
 		return cls + "#*";
+	}
+
+	/** Writes classes generated during mixin application, following references until none are missing. */
+	private static int writeGeneratedClasses(Path classesOut, IMixinTransformer mixin, FabricLauncher launcher) throws IOException {
+		int n = 0;
+		// MixinExtras keeps the bytes of every class it defined (LocalRef implementations and the like)
+		Set<ClassLoader> loaders = new LinkedHashSet<>();
+		loaders.add(launcher.getTargetClassLoader());
+		loaders.add(Weave.class.getClassLoader());
+		loaders.add(ClassLoader.getSystemClassLoader());
+		for (ClassLoader cl : loaders) {
+			try {
+				Class<?> c = Class.forName("com.llamalad7.mixinextras.utils.ClassGenUtils", true, cl);
+				@SuppressWarnings("unchecked")
+				Map<String, byte[]> defs = (Map<String, byte[]>) c.getMethod("getDefinitions").invoke(null);
+				for (Map.Entry<String, byte[]> e : defs.entrySet()) {
+					Path p = classesOut.resolve(e.getKey().replace('.', '/') + ".class");
+					if (!Files.exists(p)) { write(classesOut, e.getKey(), e.getValue()); n++; }
+				}
+			} catch (Throwable t) {
+				// that loader has no MixinExtras
+			}
+		}
+		// Mixin's synthetic classes (e.g. Target$Anonymous$hash): ask the transformer for every missing reference
+		Set<String> tried = new java.util.HashSet<>();
+		boolean again = true;
+		while (again) {
+			again = false;
+			Set<String> refs = new TreeSet<>();
+			try (Stream<Path> s = Files.walk(classesOut)) {
+				for (Path p : (Iterable<Path>) s.filter(x -> x.toString().endsWith(".class"))::iterator) {
+					collectClassRefs(Files.readAllBytes(p), refs);
+				}
+			}
+			for (String internal : refs) {
+				if (!tried.add(internal)) continue;
+				if (Files.exists(classesOut.resolve(internal + ".class"))) continue;
+				if (!internal.contains("$")) continue; // generated classes are always nested names
+				String dotted = internal.replace('/', '.');
+				byte[] b = null;
+				try {
+					b = mixin.generateClass(MixinEnvironment.getCurrentEnvironment(), dotted);
+				} catch (Throwable t) {
+					// not a generated class
+				}
+				if (b != null) {
+					write(classesOut, dotted, stripTypeAnnotations(b));
+					n++;
+					again = true;
+				}
+			}
+		}
+		return n;
+	}
+
+	private static void collectClassRefs(byte[] b, Set<String> out) {
+		org.objectweb.asm.ClassReader cr = new org.objectweb.asm.ClassReader(b);
+		char[] buf = new char[cr.getMaxStringLength()];
+		for (int i = 1; i < cr.getItemCount(); i++) {
+			int off = cr.getItem(i);
+			if (off > 0 && b[off - 1] == 7) { // CONSTANT_Class
+				String name = cr.readUTF8(off, buf);
+				if (name != null && !name.startsWith("[")) out.add(name);
+			}
+		}
 	}
 
 	/**
