@@ -40,8 +40,9 @@ public class TeaVMCheck {
 						org.teavm.model.MethodHolder mh = new Parser(cache).parseMethod(m, cn.name.replace('/', '.'));
 						Program prog = mh.getProgram();
 						if (prog == null) continue;
-						new NullCheckInsertion(NullCheckFilter.EMPTY).transformProgram(prog,
-								new MethodReference(cn.name.replace('/', '.'), MethodDescriptor.parse(m.name + m.desc)));
+						MethodDescriptor md = MethodDescriptor.parse(m.name + m.desc);
+						new NullCheckInsertion(NullCheckFilter.EMPTY).transformProgram(prog, new MethodReference(cn.name.replace('/', '.'), md));
+						org.teavm.model.analysis.NullnessInformation.build(prog, md).dispose();
 					} catch (Throwable t) {
 						if (bad++ < 60) System.out.println("[teavm-check] " + cn.name.replace('/', '.') + "." + m.name + m.desc + ": " + t);
 					}
