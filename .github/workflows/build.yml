@@ -4,7 +4,7 @@ name: Build Eaglercraft 26.2
 # loader/weave.sh hooks build-time Fabric into the workspace's Gradle build; see the README.
 #
 # Test builds (every push that changes mods/ or loader/, and manual runs): faster, lighter compression,
-# published as a pre-release. Release builds (push a tag like v1.0, or a manual run with "release"
+# readable names in crash reports, published as a pre-release. Release builds (push a tag like v1.0, or a manual run with "release"
 # ticked): maximum compression, published as a normal release.
 
 on:
@@ -110,7 +110,8 @@ jobs:
         working-directory: workspace
         env:
           RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.release == true }}
-          DIAGNOSTIC: ${{ inputs.diagnostic == true }}
+          # test builds keep readable names in crash reports; releases don't
+          DIAGNOSTIC: ${{ inputs.diagnostic == true || !(startsWith(github.ref, 'refs/tags/v') || inputs.release == true) }}
           EAGLER_BUILD_CAP_MIB: "13312"
           GRADLE_OPTS: "-Dorg.gradle.daemon=false"
         run: |
