@@ -91,8 +91,11 @@ final class MixinDisabler {
 		boolean all = methods.contains("*");
 		for (MethodNode m : cn.methods) {
 			if (all || methods.contains(m.name)) {
-				strip(m.visibleAnnotations);
-				strip(m.invisibleAnnotations);
+				m.visibleAnnotations = strip(m.visibleAnnotations);
+				m.invisibleAnnotations = strip(m.invisibleAnnotations);
+				// MixinExtras sugar on the parameters (@Local, @Share) only makes sense on an injector
+				m.visibleParameterAnnotations = stripParams(m.visibleParameterAnnotations);
+				m.invisibleParameterAnnotations = stripParams(m.invisibleParameterAnnotations);
 			}
 		}
 		ClassWriter cw = new ClassWriter(0);
@@ -100,14 +103,26 @@ final class MixinDisabler {
 		return cw.toByteArray();
 	}
 
-	private static void strip(List<AnnotationNode> list) {
-		if (list == null) return;
+	/** Removes injector annotations and MixinExtras ones (@Definition, @Expression, ...); null if none are left. */
+	private static List<AnnotationNode> strip(List<AnnotationNode> list) {
+		if (list == null) return null;
 		for (Iterator<AnnotationNode> it = list.iterator(); it.hasNext(); ) {
 			String d = it.next().desc;
-			if (d.startsWith("Lorg/spongepowered/asm/mixin/injection/") || d.startsWith("Lcom/llamalad7/mixinextras/injector/")) {
+			if (d.startsWith("Lorg/spongepowered/asm/mixin/injection/") || d.startsWith("Lcom/llamalad7/mixinextras/")) {
 				it.remove();
 			}
 		}
+		return list.isEmpty() ? null : list;
+	}
+
+	private static List<AnnotationNode>[] stripParams(List<AnnotationNode>[] params) {
+		if (params == null) return null;
+		boolean any = false;
+		for (int i = 0; i < params.length; i++) {
+			params[i] = strip(params[i]);
+			any |= params[i] != null;
+		}
+		return any ? params : null;
 	}
 
 	private static byte[] readAll(InputStream in) throws IOException {
