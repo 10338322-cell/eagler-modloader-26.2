@@ -15,14 +15,85 @@ import org.objectweb.asm.Opcodes;
  * back inside a try block) and reports only "Variable used before definition". Such methods are now
  * left without explicit null checks (a null dereference there traps instead of throwing an NPE) and
  * named in the build log.
- * Usage: java PatchTeaVM NullCheckInsertion.class (patched in place)
+ * Same for TeaVM.optimizeMethodCacheMiss (the per-method optimizer).
+ * Usage: java PatchTeaVM path/to/NullCheckInsertion.class path/to/TeaVM.class (patched in place)
  */
 public class PatchTeaVM {
 	static final String CLS = "org/teavm/model/transformation/NullCheckInsertion";
 	static final String DESC = "(Lorg/teavm/model/Program;Lorg/teavm/model/MethodReference;)V";
 
 	public static void main(String[] args) throws Exception {
-		Path p = Paths.get(args[0]);
+		for (String a : args) {
+			Path p = Paths.get(a);
+			if (p.toString().endsWith("TeaVM.class")) patchOptimize(p);
+			else patchNullChecks(p);
+		}
+	}
+
+	static final String TEAVM = "org/teavm/vm/TeaVM";
+	static final String OPT_DESC = "(Lorg/teavm/model/MethodHolder;Lorg/teavm/model/Program;)Lorg/teavm/model/Program;";
+
+	/**
+	 * TeaVM.optimizeMethodCacheMiss(method, program): if TeaVM's optimizer fails on one method, use the
+	 * method unoptimized (and name it in the log) instead of failing the whole build.
+	 */
+	static void patchOptimize(Path p) throws Exception {
+		ClassReader cr = new ClassReader(Files.readAllBytes(p));
+		ClassWriter cw = new ClassWriter(0);
+		cr.accept(new ClassVisitor(Opcodes.ASM9, cw) {
+			@Override
+			public MethodVisitor visitMethod(int access, String name, String desc, String sig, String[] ex) {
+				if (name.equals("optimizeMethodCacheMiss") && desc.equals(OPT_DESC)) name = "optimizeMethodCacheMiss$orig";
+				return super.visitMethod(access, name, desc, sig, ex);
+			}
+
+			@Override
+			public void visitEnd() {
+				final String MH = "org/teavm/model/MethodHolder", PROGRAM = "org/teavm/model/Program";
+				MethodVisitor mv = super.visitMethod(Opcodes.ACC_PRIVATE, "optimizeMethodCacheMiss", OPT_DESC, null, null);
+				mv.visitCode();
+				Label start = new Label(), end = new Label(), handler = new Label();
+				mv.visitTryCatchBlock(start, end, handler, "java/lang/Throwable");
+				// keep a copy of the program as it was before optimizing
+				mv.visitVarInsn(Opcodes.ALOAD, 2);
+				mv.visitMethodInsn(Opcodes.INVOKESTATIC, "org/teavm/model/util/ProgramUtils", "copy", "(Lorg/teavm/model/ProgramReader;)Lorg/teavm/model/Program;", false);
+				mv.visitVarInsn(Opcodes.ASTORE, 3);
+				mv.visitLabel(start);
+				mv.visitVarInsn(Opcodes.ALOAD, 0);
+				mv.visitVarInsn(Opcodes.ALOAD, 1);
+				mv.visitVarInsn(Opcodes.ALOAD, 2);
+				mv.visitMethodInsn(Opcodes.INVOKESPECIAL, TEAVM, "optimizeMethodCacheMiss$orig", OPT_DESC, false);
+				mv.visitLabel(end);
+				mv.visitInsn(Opcodes.ARETURN);
+				mv.visitLabel(handler);
+				mv.visitFrame(Opcodes.F_FULL, 4, new Object[] { TEAVM, MH, PROGRAM, PROGRAM }, 1, new Object[] { "java/lang/Throwable" });
+				mv.visitVarInsn(Opcodes.ASTORE, 4);
+				mv.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;");
+				mv.visitTypeInsn(Opcodes.NEW, "java/lang/StringBuilder");
+				mv.visitInsn(Opcodes.DUP);
+				mv.visitLdcInsn("[eagler-modloader] TeaVM can't optimize ");
+				mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "(Ljava/lang/String;)V", false);
+				mv.visitVarInsn(Opcodes.ALOAD, 1);
+				mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, MH, "getReference", "()Lorg/teavm/model/MethodReference;", false);
+				mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/Object;)Ljava/lang/StringBuilder;", false);
+				mv.visitLdcInsn(" (left unoptimized): ");
+				mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+				mv.visitVarInsn(Opcodes.ALOAD, 4);
+				mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/Object;)Ljava/lang/StringBuilder;", false);
+				mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
+				mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+				mv.visitVarInsn(Opcodes.ALOAD, 3);
+				mv.visitInsn(Opcodes.ARETURN);
+				mv.visitMaxs(4, 5);
+				mv.visitEnd();
+				super.visitEnd();
+			}
+		}, 0);
+		Files.write(p, cw.toByteArray());
+		System.out.println("[patch-teavm] the optimizer skips (and names) methods it can't handle");
+	}
+
+	static void patchNullChecks(Path p) throws Exception {
 		ClassReader cr = new ClassReader(Files.readAllBytes(p));
 		ClassWriter cw = new ClassWriter(0);
 		cr.accept(new ClassVisitor(Opcodes.ASM9, cw) {

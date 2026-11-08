@@ -57,15 +57,15 @@ jobs:
       - name: Set up build-time Fabric
         run: chmod +x loader/weave.sh && loader/weave.sh workspace eml
 
-      - name: Let TeaVM skip null checks in methods it can't handle
+      - name: Let TeaVM skip null checks and optimization in methods it can't handle
         run: |
           DEPS="$(ls "$PWD"/eml/deps/*.jar | tr '\n' ':')"
           mkdir -p eml/patch-teavm && cd eml/patch-teavm
           javac -nowarn -cp "$DEPS" -d . ../../loader/tools/PatchTeaVM.java
           JAR="$(ls ../../workspace/wasm-toolchain/teavm-eagler-patch/teavm-core-*.jar | head -1)"
-          unzip -o -q "$JAR" org/teavm/model/transformation/NullCheckInsertion.class
-          java -cp "$DEPS:." PatchTeaVM org/teavm/model/transformation/NullCheckInsertion.class
-          jar uf "$JAR" org/teavm/model/transformation/NullCheckInsertion.class
+          unzip -o -q "$JAR" org/teavm/model/transformation/NullCheckInsertion.class org/teavm/vm/TeaVM.class
+          java -cp "$DEPS:." PatchTeaVM org/teavm/model/transformation/NullCheckInsertion.class org/teavm/vm/TeaVM.class
+          jar uf "$JAR" org/teavm/model/transformation/NullCheckInsertion.class org/teavm/vm/TeaVM.class
 
       - name: Build the standalone HTML
         working-directory: workspace
