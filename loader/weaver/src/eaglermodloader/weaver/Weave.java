@@ -90,6 +90,28 @@ public final class Weave {
 			game++;
 		}
 
+		// 1b. the game's libraries (DataFixerUpper, Brigadier, ...): mods mix into those too. Only classes
+		//     that actually changed are written; they shadow the library's copy (game classes come first).
+		int libChanged = 0;
+		for (String lib : System.getProperty("eml.gameLibs", "").split(java.io.File.pathSeparator)) {
+			if (lib.isEmpty() || !lib.endsWith(".jar") || !Files.exists(Paths.get(lib))) continue;
+			for (String name : classNames(Paths.get(lib))) {
+				if (name.startsWith("java.") || name.startsWith("javax.") || name.startsWith("jdk.")) continue;
+				byte[] raw;
+				try {
+					raw = launcher.getClassByteArray(name, false);
+				} catch (Throwable t) {
+					continue;
+				}
+				if (raw == null) continue;
+				byte[] b = transform(launcher, mixin, name, null);
+				if (b == null || java.util.Arrays.equals(raw, b)) continue;
+				write(classesOut, name, stripTypeAnnotations(b));
+				libChanged++;
+			}
+		}
+		System.out.println("[weave] library classes changed by mods: " + libChanged);
+
 		// 2. every mod class (mixin classes themselves are skipped; they were applied above)
 		StringBuilder json = new StringBuilder("[\n");
 		boolean first = true;
