@@ -57,6 +57,16 @@ jobs:
       - name: Set up build-time Fabric
         run: chmod +x loader/weave.sh && loader/weave.sh workspace eml
 
+      - name: Make TeaVM name the method when null-check insertion fails (diagnostic)
+        run: |
+          DEPS="$(ls eml/deps/*.jar | tr '\n' ':')"
+          mkdir -p eml/patch-teavm && cd eml/patch-teavm
+          javac -nowarn -cp "$DEPS" -d . ../../loader/tools/PatchTeaVM.java
+          JAR="$(ls ../../workspace/wasm-toolchain/teavm-eagler-patch/teavm-core-*.jar | head -1)"
+          unzip -o -q "$JAR" org/teavm/model/transformation/NullCheckInsertion.class
+          java -cp "$DEPS:." PatchTeaVM org/teavm/model/transformation/NullCheckInsertion.class
+          jar uf "$JAR" org/teavm/model/transformation/NullCheckInsertion.class
+
       - name: Build the standalone HTML
         working-directory: workspace
         env:
