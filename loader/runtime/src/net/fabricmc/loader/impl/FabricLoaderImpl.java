@@ -104,8 +104,9 @@ public final class FabricLoaderImpl implements FabricLoader {
 					@Override public String getDefinition() { return e.value; }
 				});
 			} catch (Throwable t) {
+				System.err.println("[eagler-modloader] entrypoint '" + key + "' " + e.value + " of mod '" + e.modId + "' failed: " + t);
+				t.printStackTrace();
 				if (err == null) err = new EntrypointException(key, e.modId, t);
-				else err.addSuppressed(t);
 			}
 		}
 		if (err != null) throw err;
@@ -119,8 +120,9 @@ public final class FabricLoaderImpl implements FabricLoader {
 			try {
 				invoker.accept(c.getEntrypoint());
 			} catch (Throwable t) {
+				System.err.println("[eagler-modloader] entrypoint '" + key + "' of mod '" + c.getProvider().getMetadata().getId() + "' failed: " + t);
+				t.printStackTrace();
 				if (err == null) err = new RuntimeException("Could not execute entrypoint stage '" + key + "' due to errors, provided by '" + c.getProvider().getMetadata().getId() + "'", t);
-				else err.addSuppressed(t);
 			}
 		}
 		if (err != null) throw err;

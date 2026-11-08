@@ -29,6 +29,7 @@ public final class EmlHooks {
 	 * ones) before the Minecraft constructor adds the client-only mods, whose "main" entrypoints then run here.
 	 */
 	private static void runMain() {
+		// (TeaVM's Throwable.addSuppressed isn't usable here, so each failure is reported on its own)
 		RuntimeException err = null;
 		for (EmlEntrypoint e : GeneratedMods.entrypoints("main")) {
 			if (e.ran) continue;
@@ -37,8 +38,9 @@ public final class EmlHooks {
 				Object o = e.get();
 				if (o instanceof ModInitializer) ((ModInitializer) o).onInitialize();
 			} catch (Throwable t) {
-				if (err == null) err = new RuntimeException("Could not execute entrypoint stage 'main' due to errors, provided by '" + e.modId + "'", t);
-				else err.addSuppressed(t);
+				System.err.println("[eagler-modloader] main entrypoint " + e.value + " of mod '" + e.modId + "' failed: " + t);
+				t.printStackTrace();
+				if (err == null) err = new RuntimeException("Could not execute entrypoint stage 'main' due to errors, provided by '" + e.modId + "' (" + e.value + ")", t);
 			}
 		}
 		if (err != null) throw err;
