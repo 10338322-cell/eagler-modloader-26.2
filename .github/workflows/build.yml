@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: build
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   # The Eaglercraft 26.2 workspace is downloaded at build time and never committed here.
