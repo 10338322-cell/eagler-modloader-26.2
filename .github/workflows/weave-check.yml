@@ -1,0 +1,47 @@
+name: Weave check
+
+# Fast check of the build-time Fabric step: compiles the game and applies the mods in mods/
+# without the long browser link. Uploads the weave report and mods.json.
+
+on:
+  push:
+    branches: [main]
+    paths: ["mods/**", "loader/**", ".github/workflows/weave-check.yml"]
+  workflow_dispatch:
+
+env:
+  WORKSPACE_REPO: https://github.com/kingjoeishere/Eaglercraft-26.2-Workspace
+  WORKSPACE_COMMIT: f73bff91f0f0840bc958c09ab536dbba1e146b2e
+
+jobs:
+  weave:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            25
+      - name: Download the Eaglercraft 26.2 workspace
+        run: |
+          git init -q workspace && cd workspace
+          git remote add origin "$WORKSPACE_REPO"
+          git fetch -q --depth 1 origin "$WORKSPACE_COMMIT" && git checkout -q FETCH_HEAD
+          chmod +x gradlew
+      - name: Set up build-time Fabric
+        run: chmod +x loader/weave.sh && loader/weave.sh workspace eml
+      - name: Compile the game and weave the mods
+        working-directory: workspace
+        run: ./gradlew --no-daemon --console=plain :game:compileJava
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weave-report
+          path: |
+            eml/weave.log
+            eml/woven/mods.json
+          retention-days: 14

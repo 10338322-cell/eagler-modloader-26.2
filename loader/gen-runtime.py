@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""Generate eaglermodloader/runtime/GeneratedMods.java from the weaver's mods.json.
+
+Usage: gen-runtime.py MODS_JSON WOVEN_CLASSES_DIR LOADER_VERSION OUT_JAVA_FILE
+Entrypoints become plain `new X()` calls (TeaVM has no general reflection), so this is where
+Fabric's default language adapter is resolved at build time.
+"""
+import json, os, struct, sys
+
+def java_str(s):
+    out = []
+    for ch in s:
+        o = ord(ch)
+        if ch == '"': out.append('\\"')
+        elif ch == '\\': out.append('\\\\')
+        elif ch == '\n': out.append('\\n')
+        elif ch == '\r': out.append('\\r')
+        elif ch == '\t': out.append('\\t')
+        elif o < 0x20 or o > 0x7e: out.append('\\u%04x' % o if o <= 0xffff else ch)
+        else: out.append(ch)
+    return '"' + ''.join(out) + '"'
+
+def java_long_str(s, chunk=8000):
+    if s is None: return "null"
+    parts = [s[i:i + chunk] for i in range(0, len(s), chunk)] or [""]
+    return "new StringBuilder()" + "".join(".append(%s)" % java_str(p) for p in parts) + ".toString()"
+
+def class_members(classes_dir, cls):
+    """(fields, methods) of a class file, by name, with access flags."""
+    p = os.path.join(classes_dir, cls.replace('.', '/') + '.class')
+    if not os.path.exists(p): return None
+    b = open(p, 'rb').read()
+    n = struct.unpack('>H', b[8:10])[0]
+    cp = [None] * n
+    i, k = 10, 1
+    while k < n:
+        tag = b[i]
+        if tag == 1:
+            ln = struct.unpack('>H', b[i + 1:i + 3])[0]
+            cp[k] = b[i + 3:i + 3 + ln].decode('utf-8', 'replace'); i += 3 + ln
+        elif tag in (3, 4): i += 5
+        elif tag in (5, 6): i += 9; k += 1
+        elif tag in (7, 8, 16, 19, 20): i += 3
+        elif tag in (9, 10, 11, 12, 17, 18): i += 5
+        elif tag == 15: i += 4
+        else: raise ValueError("bad constant tag %d in %s" % (tag, p))
+        k += 1
+    i += 6
+    ifc = struct.unpack('>H', b[i:i + 2])[0]; i += 2 + 2 * ifc
+    def members(i):
+        cnt = struct.unpack('>H', b[i:i + 2])[0]; i += 2
+        out = {}
+        for _ in range(cnt):
+            acc, ni, di, ac = struct.unpack('>HHHH', b[i:i + 8]); i += 8
+            out.setdefault(cp[ni], []).append((acc, cp[di]))
+            for _ in range(ac):
+                ln = struct.unpack('>I', b[i + 2:i + 6])[0]; i += 6 + ln
+        return out, i
+    fields, i = members(i)
+    methods, i = members(i)
+    return fields, methods
+
+def main():
+    mods_json, classes, loader_version, out = sys.argv[1:5]
+    mods = json.load(open(mods_json))
+    warnings = []
+    lines = []
+    for m in mods:
+        for key, eps in sorted(m["entrypoints"].items()):
+            for ep in eps:
+                adapter, value = ep["adapter"], ep["value"]
+                if adapter != "default":
+                    warnings.append("%s: entrypoint '%s' uses the '%s' language adapter, which isn't supported; skipped" % (m["id"], value, adapter))
+                    continue
+                if "::" in value:
+                    cls, member = value.split("::", 1)
+                    mem = class_members(classes, cls)
+                    if mem and member in mem[0]:
+                        expr = "%s.%s" % (cls.replace('$', '.'), member)
+                    else:
+                        warnings.append("%s: entrypoint '%s' (method reference) isn't supported yet; skipped" % (m["id"], value))
+                        continue
+                else:
+                    mem = class_members(classes, value)
+                    if mem is None:
+                        warnings.append("%s: entrypoint class %s not found; skipped" % (m["id"], value))
+                        continue
+                    expr = "new %s()" % value.replace('$', '.')
+                lines.append('\t\tadd(%s, %s, %s, () -> %s);' % (java_str(key), java_str(m["id"]), java_str(value), expr))
+    mod_rows = []
+    for m in mods:
+        mod_rows.append("\t\t{ %s, %s, %s }," % (java_str(m["id"]), java_str(m["parent"]) if m["parent"] else "null", java_long_str(m["fabricModJson"])))
+    src = """package eaglermodloader.runtime;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
+
+/** Generated at build time by loader/gen-runtime.py from the mods in mods/. Do not edit. */
+public final class GeneratedMods {
+	public static final String LOADER_VERSION = %s;
+	public static final String GAME_VERSION = "26.2";
+
+	/** { mod id, parent mod id (jar-in-jar) or null, fabric.mod.json } */
+	public static final String[][] MODS = {
+%s
+	};
+
+	private static Map<String, List<EmlEntrypoint>> entrypoints;
+
+	public static synchronized List<EmlEntrypoint> entrypoints(String key) {
+		if (entrypoints == null) {
+			entrypoints = new HashMap<>();
+			register();
+		}
+		List<EmlEntrypoint> l = entrypoints.get(key);
+		return l != null ? l : Collections.<EmlEntrypoint>emptyList();
+	}
+
+	private static void add(String key, String modId, String value, Supplier<Object> factory) {
+		entrypoints.computeIfAbsent(key, k -> new ArrayList<>()).add(new EmlEntrypoint(modId, value, factory));
+	}
+
+	private static void register() {
+%s
+	}
+
+	private GeneratedMods() {
+	}
+}
+""" % (java_str(loader_version), "\n".join(mod_rows), "\n".join(lines))
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    open(out, "w").write(src)
+    print("[gen] %d mods, %d entrypoints" % (len(mods), len(lines)))
+    for w in warnings: print("[gen] warning: " + w)
+
+if __name__ == "__main__":
+    main()
